@@ -246,8 +246,8 @@ class OpenSSLConan(ConanFile):
             if self.options.shared:
                 self.copy(pattern="%s/libcrypto.dll.a" % self.subfolder, dst="lib", keep_path=False)
                 self.copy(pattern="%s/libssl.dll.a" % self.subfolder, dst="lib", keep_path=False)
-                self.copy(pattern="%s/libeay32.dll" % self.subfolder, dst="bin", keep_path=False)
-                self.copy(pattern="%s/ssleay32.dll" % self.subfolder, dst="bin", keep_path=False)
+                self.copy(pattern="%s/libcrypto.dll" % self.subfolder, dst="bin", keep_path=False)
+                self.copy(pattern="%s/libssl.dll" % self.subfolder, dst="bin", keep_path=False)
             else:
                 self.copy(pattern="%s/libcrypto.a" % self.subfolder, dst="lib", keep_path=False)
                 self.copy(pattern="%s/libssl.a" % self.subfolder, dst="lib", keep_path=False)
