@@ -5,10 +5,13 @@ import os
 
 class OpenSSLConan(ConanFile):
     name = "OpenSSL"
-    version = "1.0.2j"
+    version = "1.1.0f"
     settings = "os", "compiler", "arch", "build_type"
     url="http://github.com/lasote/conan-openssl"
-    # https://github.com/openssl/openssl/blob/OpenSSL_1_0_2c/INSTALL
+    license = "The current OpenSSL licence is an 'Apache style' license: https://www.openssl.org/source/license.html"
+    description = "OpenSSL is an open source project that provides a robust, commercial-grade, and full-featured " \
+                  "toolkit for the Transport Layer Security (TLS) and Secure Sockets Layer (SSL) protocols"
+    # https://github.com/openssl/openssl/blob/OpenSSL_1_0_2f/INSTALL
     options = {"no_threads": [True, False],
                "no_electric_fence": [True, False],
                "no_zlib": [True, False],
@@ -37,80 +40,59 @@ class OpenSSLConan(ConanFile):
 
     # When a new version is avaiable they move the tar.gz to old/ location
     source_tgz = "https://www.openssl.org/source/openssl-%s.tar.gz" % version
-    source_tgz_old = "https://www.openssl.org/source/old/1.0.2/openssl-%s.tar.gz" % version
+    source_tgz_old = "https://www.openssl.org/source/old/1.1.0/openssl-%s.tar.gz" % version
     counter_config = 0
+
+    def build_requirements(self):
+        # useful for example for conditional build_requires
+        if self.settings.os == "Windows":
+            self.build_requires("strawberryperl/5.26.0@conan/stable")
+            self.build_requires("nasm/2.13.01@conan/stable")
 
     def source(self):
         self.output.info("Downloading %s" % self.source_tgz)
         try:
             tools.download(self.source_tgz_old, "openssl.tar.gz")
-            tools.unzip("openssl.tar.gz", ".")
         except:
             tools.download(self.source_tgz, "openssl.tar.gz")
-            tools.unzip("openssl.tar.gz", ".")
-
-        tools.check_sha256("openssl.tar.gz", "e7aff292be21c259c6af26469c7a9b3ba26e9abaaffd325e3dccc9785256c431")
+        tools.unzip("openssl.tar.gz")
+        tools.check_sha256("openssl.tar.gz", "12f746f3f2493b2f39da7ecf63d7ee19c6ac9ec6a4fcd8c229da8a522cb12765")
         os.unlink("openssl.tar.gz")
 
-    def config(self):
-        self.counter_config += 1
-        try: # Try catch can be removed when conan 0.8 is released
-            del self.settings.compiler.libcxx
-        except:
-            pass
+    def configure(self):
+        del self.settings.compiler.libcxx
 
-        if not self.options.no_electric_fence and self.settings.os == "Linux":
-            private = False if self.options.shared else True
-            if self.counter_config==2:
-                self.requires.add("electric-fence/2.2.0@lasote/stable", private=private)
-            self.options["electric-fence"].shared = self.options.shared
-        else:
-            if "electric-fence" in self.requires:
-                del self.requires["electric-fence"]
-
+    def requirements(self):
         if not self.options.no_zlib:
-            self.requires.add("zlib/1.2.8@lasote/stable", private=False)
-            self.options["zlib"].shared = self.options.zlib_dynamic
-
-        else:
-            if "zlib" in self.requires:
-                del self.requires["zlib"]
+            self.requires("zlib/1.2.11@conan/stable")
 
     @property
     def subfolder(self):
         return "openssl-%s" % self.version
     
     def build(self):
-        '''
+        """
             For Visual Studio (tried with 2010) compiling need:
              - perl: http://www.activestate.com/activeperl/downloads
              - nasm: http://www.nasm.us/
-
             Put perl and nasm bin folder in USER PATH (not system path, so the visual 2010 command system symbol can find it)
             Open the visual 2010 command system symbol and run conan.
-
             Here are good page explaining it: http://hostagebrain.blogspot.com.es/2015/04/build-openssl-on-windows.html
-        '''
-
+        """
         config_options_string = ""
-        if self.deps_cpp_info.include_paths:
-            include_path = self.deps_cpp_info["zlib"].include_paths[0]
+        if "zlib" in self.deps_cpp_info.deps:
+            zlib_info = self.deps_cpp_info["zlib"]
+            include_path = zlib_info.include_paths[0]
             if self.settings.os == "Windows":
-                lib_path = self.deps_cpp_info["zlib"].lib_paths[0] + "/" + self.deps_cpp_info["zlib"].libs[0] + ".lib"  # Concrete lib file
+                lib_path = "%s/%s.lib" % (zlib_info.lib_paths[0], zlib_info.libs[0])
             else:
-                lib_path = self.deps_cpp_info["zlib"].lib_paths[0] # Just path, linux will find the right file
+                lib_path = zlib_info.lib_paths[0]  # Just path, linux will find the right file
             config_options_string += ' --with-zlib-include="%s"' % include_path
             config_options_string += ' --with-zlib-lib="%s"' % lib_path
-            # EFENCE LINK
-            if "electric-fence" in self.requires:
-                libs = " ".join([ "-l%s" % lib for lib in self.deps_cpp_info["electric-fence"].libs])
-                config_options_string += ' -L"%s" -I"%s" %s' % (self.deps_cpp_info["electric-fence"].lib_paths[0],
-                                                                self.deps_cpp_info["electric-fence"].include_paths[0],
-                                                                libs)
-            else:
-                tools.replace_in_file("./openssl-%s/Configure" % self.version, "::-lefence::", "::")
-                tools.replace_in_file("./openssl-%s/Configure" % self.version, "::-lefence ", "::")
-            self.output.warn("=====> Options: %s" % config_options_string)
+
+            tools.replace_in_file("./openssl-%s/Configure" % self.version, "::-lefence::", "::")
+            tools.replace_in_file("./openssl-%s/Configure" % self.version, "::-lefence ", "::")
+            self.output.info("=====> Options: %s" % config_options_string)
 
         for option_name in self.options.values.fields:
             activated = getattr(self.options, option_name)
@@ -118,108 +100,157 @@ class OpenSSLConan(ConanFile):
                 self.output.info("Activated option! %s" % option_name)
                 config_options_string += " %s" % option_name.replace("_", "-")
 
-        def run_in_src(command, show_output=False):
-            command = 'cd openssl-%s && %s' % (self.version, command)
-            if not show_output and self.settings.os != "Windows":
-                command += ' | while read line; do printf "%c" .; done'
-            self.run(command)
-            self.output.writeln(" ")
-
-        def unix_make(config_options_string):
-
-            self.output.warn("----------CONFIGURING OPENSSL %s-------------" % self.version)
-            m32_suff = " -m32" if self.settings.arch == "x86" else ""
-            if self.settings.os == "Linux":
-                if self.settings.build_type == "Debug":
-                    config_options_string = "-d " + config_options_string
-
-                m32_pref = "setarch i386" if self.settings.arch == "x86" else ""
-                config_line = "%s ./config -fPIC %s %s" % (m32_pref, config_options_string, m32_suff)
-                self.output.warn(config_line)
-                run_in_src(config_line)
-                run_in_src("make depend")
-                self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
-                run_in_src("make")
-            elif self.settings.os == "Macos":
-                if self.settings.arch == "x86_64":
-                    command = "./Configure darwin64-x86_64-cc %s" % config_options_string
-                else:
-                    command = "./config %s %s" % (config_options_string, m32_suff)
-                run_in_src(command)
-                # REPLACE -install_name FOR FOLLOW THE CONAN RULES,
-                # DYNLIBS IDS AND OTHER DYNLIB DEPS WITHOUT PATH, JUST THE LIBRARY NAME
-                old_str = 'SHAREDFLAGS="$$SHAREDFLAGS -install_name $(INSTALLTOP)/$(LIBDIR)/$$SHLIB$'
-                new_str = 'SHAREDFLAGS="$$SHAREDFLAGS -install_name $$SHLIB$'
-                tools.replace_in_file("./openssl-%s/Makefile.shared" % self.version, old_str, new_str)
-                self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
-                run_in_src("make")
-
-        def windows_make(config_options_string):
-            self.output.warn("----------CONFIGURING OPENSSL FOR WINDOWS. %s-------------" % self.version)
-            debug = "debug-" if self.settings.build_type == "Debug" else ""
-            arch = "32" if self.settings.arch == "x86" else "64A"
-            configure_type = debug + "VC-WIN" + arch
-            # Will output binaries to ./binaries
-            config_command = "perl Configure %s no-asm --prefix=../binaries" % configure_type
-            whole_command = "%s %s" % (config_command, config_options_string)
-            self.output.warn(whole_command)
-            run_in_src(whole_command)
-
-            if self.options.no_asm:
-                run_in_src("ms\do_nasm")
-
-            if arch == "64A":
-                run_in_src("ms\do_win64a")
-            else:
-                run_in_src("ms\do_ms")
-            runtime = self.settings.compiler.runtime
-            # Replace runtime in ntdll.mak and nt.mak
-            tools.replace_in_file("./openssl-%s/ms/ntdll.mak" % self.version, "/MD ", "/%s " % runtime)
-            tools.replace_in_file("./openssl-%s/ms/nt.mak" % self.version, "/MT ", "/%s " % runtime)
-            tools.replace_in_file("./openssl-%s/ms/ntdll.mak" % self.version, "/MDd ", "/%s " % runtime)
-            tools.replace_in_file("./openssl-%s/ms/nt.mak" % self.version, "/MTd ", "/%s " % runtime)
-
-            self.output.warn(os.curdir)
-            vcvars = tools.vcvars_command(self.settings)
-            vcvars = "%s && " % vcvars if vcvars else " "
-            make_command = "nmake -f ms\\ntdll.mak" if self.options.shared else "nmake -f ms\\nt.mak "
-            self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
-            run_in_src("%s%s" % (vcvars, make_command))
-            run_in_src("%s%s install" % (vcvars, make_command))
-            # Rename libs with the arch
-            renames = {"./binaries/lib/libeay32.lib": "./binaries/lib/libeay32%s.lib" % runtime,
-                       "./binaries/lib/ssleay32.lib": "./binaries/lib/ssleay32%s.lib" % runtime}
-            for old, new in renames.iteritems():
-                if os.path.exists(old):
-                    os.rename(old, new)
-        
-        def mingw_make(config_options_string):
-            # NOT WORKING, PLEASE, ANY HELP WOULD BE GREAT.
-            # WITH THE MSYS TOOLS IN THE PATH IT RUNS MAKE BUT IT FAILS
-            suffix = "64" if self.settings.arch == "x86_64" else ""
-            command = "perl Configure mingw%s %s" % (suffix, config_options_string)
-            run_in_src(command, show_output=True)
-            self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
-            run_in_src("make", show_output=True)
-
-        if self.settings.os == "Linux" or self.settings.os == "Macos":
-            unix_make(config_options_string)
+        if self.settings.os in ["Linux", "SunOS", "FreeBSD"]:
+            self.unix_build(config_options_string)
+        elif self.settings.os == "Macos":
+            self.osx_build(config_options_string)
         elif self.settings.compiler == "Visual Studio":
-            windows_make(config_options_string)
+            self.visual_build(config_options_string)
         elif self.settings.os == "Windows" and self.settings.compiler == "gcc":
-            mingw_make(config_options_string)
+            self.mingw_build(config_options_string)
+        else:
+            raise Exception("Unsupported operating system: %s" % self.settings.os)
 
         self.output.info("----------BUILD END-------------")
-        return
+
+    def run_in_src(self, command, show_output=False):
+        if not show_output and self.settings.os != "Windows":
+            command += ' | while read line; do printf "%c" .; done'
+        with tools.chdir(self.subfolder):
+            self.run(command)
+        self.output.writeln(" ")
+
+    def unix_build(self, config_options_string):
+        env_build = AutoToolsBuildEnvironment(self)
+        extra_flags = ' '.join(env_build.flags)
+        target_prefix = ""
+        if self.settings.build_type == "Debug":
+            config_options_string = " no-asm" + config_options_string
+            extra_flags = extra_flags + " -O0"
+            target_prefix = "debug-"
+            if self.settings.compiler in ["apple-clang", "clang", "gcc"]:
+                extra_flags = extra_flags + " -g3 -fno-omit-frame-pointer " \
+                                            "-fno-inline-functions"
+
+        if self.settings.os == "Linux":
+            if self.settings.arch == "x86":
+                target = "%slinux-generic32" % target_prefix
+            elif self.settings.arch == "x86_64":
+                target = "%slinux-x86_64" % target_prefix
+
+        elif self.settings.os == "SunOS":
+            if self.settings.compiler in ["apple-clang", "clang", "gcc"]:
+                suffix = "-gcc"
+            elif self.settings.compiler == "sun-cc":
+                suffix = "-cc"
+            else:
+                raise Exception("Unsupported compiler on SunOS: %s" % self.settings.compiler)
+
+            # OpenSSL has no debug profile for non sparcv9 machine
+            if self.settings.arch != "sparcv9":
+                target_prefix = "" 
+
+            if self.settings.arch in ["sparc", "x86"]:
+                target = "%ssolaris-%s%s" % (target_prefix, self.settings.arch, suffix)
+            elif self.settings.arch in ["sparcv9", "x86_64"]:
+                target = "%ssolaris64-%s%s" % (target_prefix, self.settings.arch, suffix)
+            else:
+                raise Exception("Unsupported arch on SunOS: %s" % self.settings.arch)
+
+        elif self.settings.os == "FreeBSD":
+            target = "%sBSD-%s" % (target_prefix, self.settings.arch)
+
+        else:
+            raise Exception("Unsupported operating system: %s" % self.settings.os)
+
+        config_line = "./Configure %s -fPIC %s %s" % (config_options_string, target, extra_flags)
+        self.output.warn(config_line)
+        self.run_in_src(config_line)
+        self.run_in_src("make depend")
+        self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
+        self.run_in_src("make")
+
+    def osx_build(self, config_options_string):
+        m32_suff = " -m32" if self.settings.arch == "x86" else ""
+        if self.settings.arch == "x86_64":
+            command = "./Configure darwin64-x86_64-cc %s" % config_options_string
+        else:
+            command = "./config %s %s" % (config_options_string, m32_suff)
+
+        self.run_in_src(command)
+        # REPLACE -install_name FOR FOLLOW THE CONAN RULES,
+        # DYNLIBS IDS AND OTHER DYNLIB DEPS WITHOUT PATH, JUST THE LIBRARY NAME
+        old_str = 'SHAREDFLAGS="$$SHAREDFLAGS -install_name $(INSTALLTOP)/$(LIBDIR)/$$SHLIB$'
+        new_str = 'SHAREDFLAGS="$$SHAREDFLAGS -install_name $$SHLIB$'
+        tools.replace_in_file("./openssl-%s/Makefile.shared" % self.version, old_str, new_str)
+        self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
+        self.run_in_src("make")
+
+    def visual_build(self, config_options_string):
+        self.run_in_src("perl --version")
+        
+        self.output.warn("----------CONFIGURING OPENSSL FOR WINDOWS. %s-------------" % self.version)
+        debug = "debug-" if self.settings.build_type == "Debug" else ""
+        arch = "32" if self.settings.arch == "x86" else "64A"
+        configure_type = debug + "VC-WIN" + arch
+        no_asm = "no-asm" if self.options.no_asm else ""
+        # Will output binaries to ./binaries
+        vcvars = tools.vcvars_command(self.settings)
+        config_command = "%s && perl Configure %s %s --prefix=%s" % (vcvars, configure_type, no_asm, os.path.join(self.package_folder, "binaries"))
+        whole_command = "%s %s" % (config_command, config_options_string)
+        self.output.warn(whole_command)
+        self.run_in_src(whole_command)
+
+        if not self.options.no_asm and self.settings.arch == "x86":
+            # The 64 bits builds do not require the do_nasm
+            # http://p-nand-q.com/programming/windows/building_openssl_with_visual_studio_2013.html
+            self.run_in_src(r"%s && ms\do_nasm" % vcvars)
+
+        runtime = self.settings.compiler.runtime
+        make_command = "nmake"
+        self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
+        self.run_in_src("%s && %s" % (vcvars, make_command))
+        self.run_in_src("%s && %s install_sw" % (vcvars, make_command))
+        # Rename libs with the arch
+        renames = {"./binaries/lib/libeay32.lib": "./binaries/lib/libeay32%s.lib" % runtime,
+                   "./binaries/lib/ssleay32.lib": "./binaries/lib/ssleay32%s.lib" % runtime}
+        for old, new in renames.items():
+            if os.path.exists(old):
+                os.rename(old, new)
+
+    def mingw_build(self, config_options_string):
+        # https://netix.dl.sourceforge.net/project/msys2/Base/x86_64/msys2-x86_64-20161025.exe
+        config_options_string = tools.unix_path(config_options_string)
+        if self.settings.build_type == "Debug":
+            config_options_string = "-d " + config_options_string
+        if self.settings.arch == "x86":
+            config_line = "./Configure mingw %s" % config_options_string
+        else:
+            config_line = "./Configure mingw64 %s" % config_options_string
+        self.output.warn(config_line)
+        with tools.chdir(self.subfolder):
+            tools.run_in_windows_bash(self, config_line)
+            self.output.warn("----------MAKE OPENSSL %s-------------" % self.version)
+            # tools.run_in_windows_bash(self, "make depend")
+            tools.run_in_windows_bash(self, "make")
 
     def package(self):
-        self.copy("FindOpenSSL.cmake", ".", ".")
+        # Copy the license files
+        self.copy("%s/LICENSE" % self.subfolder, keep_path=False)
         self.copy(pattern="*applink.c", dst="include/openssl/", keep_path=False)
-        if self.settings.os == "Windows":
+        if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
             self._copy_visual_binaries()
-            if self.settings.compiler == "gcc" :
-                self.copy("*.a", "lib", keep_path=False)
             self.copy(pattern="*.h", dst="include/openssl/", src="binaries/include/", keep_path=False)
+        elif self.settings.os == "Windows" and self.settings.compiler == "gcc":
+            self.copy(pattern="%s/include/*" % self.subfolder, dst="include/openssl/", keep_path=False)
+            if self.options.shared:
+                self.copy(pattern="%s/libcrypto.dll.a" % self.subfolder, dst="lib", keep_path=False)
+                self.copy(pattern="%s/libssl.dll.a" % self.subfolder, dst="lib", keep_path=False)
+                self.copy(pattern="%s/libeay32.dll" % self.subfolder, dst="bin", keep_path=False)
+                self.copy(pattern="%s/ssleay32.dll" % self.subfolder, dst="bin", keep_path=False)
+            else:
+                self.copy(pattern="%s/libcrypto.a" % self.subfolder, dst="lib", keep_path=False)
+                self.copy(pattern="%s/libssl.a" % self.subfolder, dst="lib", keep_path=False)
         else:
             if self.options.shared:
                 self.copy(pattern="*libcrypto*.dylib", dst="lib", keep_path=False)
@@ -237,8 +268,9 @@ class OpenSSLConan(ConanFile):
 
     def package_info(self):
         if self.settings.compiler == "Visual Studio":
-            suffix = str(self.settings.compiler.runtime)
-            self.cpp_info.libs = ["ssleay32" + suffix, "libeay32" + suffix, "crypt32", "msi"]
+            self.cpp_info.libs = ["ssl", "crypto"]
+        elif self.settings.compiler == "gcc" and self.settings.os == "Windows":
+            self.cpp_info.libs = ["ssl", "crypto", "ws2_32"]
         elif self.settings.os == "Linux":
             self.cpp_info.libs = ["ssl", "crypto", "dl"]
         else:
